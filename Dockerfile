@@ -7,7 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
 
-# System deps (ffmpeg + mediainfo yahin se aayenge)
+# System deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libffi-dev \
@@ -16,13 +16,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     aria2 \
   && rm -rf /var/lib/apt/lists/*
 
-# Faster, deterministic pip
+# Faster, reliable pip
 RUN python -m pip install --upgrade pip
 
+# Install Python deps first for caching
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# App code
 COPY . .
 
-# Telegram bot = background worker (no HTTP port needed)
+# Default command
 CMD ["python", "main.py"]
