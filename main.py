@@ -1,18 +1,23 @@
 #  MIT License
-#  (c) Original authors
+#  (c) original authors
 
 import os
 import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
 
-from config import Config
 from pyrogram import Client, idle
-from pyromod import listen  # noqa: F401  # if you use Conversations
-import tgcrypto  # noqa: F401  # ensure tgcrypto wheels are present
+from config import Config
 
-# ---------- Logging ----------
-LOGGER = logging.getLogger(__name__)
+# --- Optional: Conversations via pyromod (won't crash if missing)
+try:
+    from pyromod import listen  # noqa: F401
+    HAVE_PYROMOD = True
+except Exception:
+    HAVE_PYROMOD = False
+
+# Logging
+LOGGER = logging.getLogger("starkbot")
 logging.basicConfig(
     level=logging.INFO,
     format="%(name)s - %(message)s",
@@ -23,52 +28,65 @@ logging.basicConfig(
     ],
 )
 
-# ---------- Auth Users ----------
-AUTH_USERS = [int(x) for x in str(Config.AUTH_USERS).split(",") if x.strip().isdigit()]
+# --- Validate envs early
+missing = []
+if not os.environ.get("BOT_TOKEN", Config.BOT_TOKEN):
+    missing.append("BOT_TOKEN")
+if not os.environ.get("API_ID") and not Config.API_ID:
+    missing.append("API_ID")
+if not os.environ.get("API_HASH", Config.API_HASH):
+    missing.append("API_HASH")
+if missing:
+    raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
 
-# ---------- Pyrogram Plugins ----------
-plugins = dict(root="plugins")
+# Auth users
+AUTH_USERS = []
+raw_auth = os.environ.get("AUTH_USERS", getattr(Config, "AUTH_USERS", ""))
+if raw_auth:
+    for chat in raw_auth.split(","):
+        chat = chat.strip()
+        if chat.isdigit():
+            AUTH_USERS.append(int(chat))
 
-# ---------- Prefixes ----------
+# Command prefixes
 prefixes = ["/", "~", "?", "!"]
 
-# ---------- Build Client (IN-MEMORY session to avoid old/banned user sessions) ----------
-def build_client() -> Client:
-    """
-    Force an in-memory bot session so that any stale *.session tied to a user account
-    is NOT loaded. This prevents 401 USER_DEACTIVATED errors.
-    """
-    return Client(
-        name="starkbot-inmem",              # name is irrelevant when in_memory=True
-        api_id=Config.API_ID,
-        api_hash=Config.API_HASH,
-        bot_token=Config.BOT_TOKEN,
-        sleep_threshold=20,
-        workers=50,
-        plugins=plugins,
-        in_memory=True,                     # <--- key fix
-        # takeout=False  # default
-    )
+# Plugins
+plugins = dict(root="plugins")
+
+# --- Critical fix:
+# Use IN-MEMORY session so Pyrogram never reuses any old user session file.
+# This avoids the 401 USER_DEACTIVATED caused by a stale user auth session.
+bot = Client(
+    name="starkbot",                 # just an identifier (not a file)
+    bot_token=os.environ.get("BOT_TOKEN", Config.BOT_TOKEN),
+    api_id=int(os.environ.get("API_ID", Config.API_ID)),
+    api_hash=os.environ.get("API_HASH", Config.API_HASH),
+    sleep_threshold=20,
+    plugins=plugins,
+    workers=50,
+    in_memory=True,                  # <-- no .session file on disk
+)
 
 async def main():
-    bot = build_client()
+    # safety: if any *.session got baked in repo/run dir, remove them
+    for f in os.listdir("."):
+        if f.endswith(".session") or ".session-journal" in f:
+            try:
+                os.remove(f)
+                LOGGER.info(f"Removed stray session file: {f}")
+            except Exception:
+                pass
+
     await bot.start()
     me = await bot.get_me()
-    LOGGER.info(f"<--- @{me.username} Started (c) STARKBOT --->")
-
-    # Safety: ensure bot token really used (prevents accidental user login)
-    if not me.is_bot:
-        LOGGER.error("This session is not a bot session. Exiting to avoid USER_DEACTIVATED issues.")
-        await bot.stop()
-        return
-
+    LOGGER.info(f"<--- @{me.username} Started (Pyrogram {bot.__version__}) --->")
+    if not HAVE_PYROMOD:
+        LOGGER.info("pyromod not installed; Conversations disabled (optional).")
     await idle()
     await bot.stop()
     LOGGER.info("<--- Bot Stopped --->")
 
 if __name__ == "__main__":
-    # Use modern API; avoids deprecated loop handling
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        LOGGER.info("Shutting down (KeyboardInterrupt)")
+    # Modern, safer loop runner
+    asyncio.run(main())
