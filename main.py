@@ -1,69 +1,78 @@
 #  MIT License
-#  (c) Dan / delivrance & contributors
+#  (c) original authors
 
 import os
+import sys
 import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
 
-from config import Config
+# --- Make this module importable as "main" for plugins ----
+# Plugins often do: from main import LOGGER, prefixes, AUTH_USERS
+sys.modules['main'] = sys.modules[__name__]
+
 from pyrogram import Client, idle, filters
-
-# ---- Optional: pyromod (don't crash if missing) ----
 try:
-    from pyromod import listen  # noqa: F401  (if you use Conversations)
+    # Optional: only used if you use Conversations; present in requirements
+    from pyromod import listen  # noqa: F401
 except Exception:
-    listen = None  # Safe fallback; app will still start
+    pass
 
-# ---- Logging (make LOGGER available before plugins import) ----
+# ----- Config via env (Render me aap env set kar rahe ho) -----
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+API_ID = int(os.environ.get("API_ID", "0"))
+API_HASH = os.environ.get("API_HASH")
+AUTH_USERS = [int(x) for x in os.environ.get("AUTH_USERS", "").split(",") if x.strip().isdigit()]
+
+# ----- Logging -----
 LOGGER = logging.getLogger("StarkBot")
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(name)s - %(message)s",
-    datefmt="%d-%b-%y %H:%M:%S",
-    handlers=[
-        RotatingFileHandler("log.txt", maxBytes=5_000_000, backupCount=10),
-        logging.StreamHandler(),
-    ],
-)
+LOGGER.setLevel(logging.INFO)
+_formatter = logging.Formatter("%(name)s - %(message)s")
+_stream = logging.StreamHandler()
+_stream.setFormatter(_formatter)
+_rot = RotatingFileHandler("log.txt", maxBytes=5_000_000, backupCount=10)
+_rot.setFormatter(_formatter)
+LOGGER.addHandler(_stream)
+LOGGER.addHandler(_rot)
 
-# ---- Auth users & prefixes (available at module import time) ----
-AUTH_USERS = [int(x) for x in str(Config.AUTH_USERS).split(",") if x.strip()]
+# ----- Command prefixes that plugins import -----
 prefixes = ["/", "~", "?", "!"]
 
-# ---- Pyrogram v2 compatibility: provide filters.edited shim ----
-# Many old plugins use `~filters.edited` or `filters.edited`.
-# In v2 this attr isn't present; we emulate it here so you don't have to
-# touch every plugin file.
+# ----- Pyrogram v2 compatibility: filters.edited shim -----
+# Some old plugins use ~filters.edited to ignore edited messages.
+# In v2, filters.edited may not exist; we recreate it.
 if not hasattr(filters, "edited"):
-    def _edited_func(_, __, m):
-        # edited messages have edit_date set
+    def _is_edited(_, __, m):
+        # True if message has edit_date (i.e., it's an edited message)
         return bool(getattr(m, "edit_date", None))
-    filters.edited = filters.create(_edited_func)
+    filters.edited = filters.create(_is_edited)
 
-# ---- Plugins folder ----
+# ----- Plugins root -----
 plugins = dict(root="plugins")
 
-# ---- Build Client (exists before .start(), so plugins importing from main work) ----
-bot = Client(
-    "StarkBot",
-    bot_token=Config.BOT_TOKEN,
-    api_id=Config.API_ID,
-    api_hash=Config.API_HASH,
-    sleep_threshold=20,
-    plugins=plugins,
-    workers=50,
-    in_memory=True,  # avoids writing session file on disk (optional)
-)
+# ----- Sanity checks -----
+if not BOT_TOKEN or not API_ID or not API_HASH:
+    raise RuntimeError("Missing BOT_TOKEN / API_ID / API_HASH in environment variables.")
 
 async def main():
+    bot = Client(
+        "StarkBot",
+        bot_token=BOT_TOKEN,
+        api_id=API_ID,
+        api_hash=API_HASH,
+        sleep_threshold=20,
+        plugins=plugins,
+        workers=50
+    )
+
     await bot.start()
     me = await bot.get_me()
     LOGGER.info(f"<--- @{me.username} Started (c) STARKBOT --->")
-    await idle()
-    await bot.stop()
-    LOGGER.info("<--- Bot Stopped --->")
+    try:
+        await idle()
+    finally:
+        await bot.stop()
+        LOGGER.info("<---Bot Stopped--->")
 
 if __name__ == "__main__":
-    # asyncio.get_event_loop().run_until_complete(main())  # old
     asyncio.run(main())
