@@ -1,20 +1,21 @@
 #  MIT License
-#  (c) ACE / StarkBot
+#  (c) ACE / StarkBot setup – cleaned for Render
 
 import os
 import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
 
-from pyrogram import Client, idle
-from pyromod import listen  # if you use Conversations
-import tgcrypto  # noqa: F401  (ensures TgCrypto wheels are loaded)
+from pyrogram import Client, idle  # Pyrogram v1.x
+from pyromod import listen  # noqa: F401  (if you use Conversations)
+import tgcrypto  # noqa: F401
 
 # ---------------- Logging ----------------
 LOGGER = logging.getLogger(__name__)
 logging.basicConfig(
     level=logging.INFO,
     format="%(name)s - %(message)s",
+    datefmt="%d-%b-%y %H:%M:%S",
     handlers=[
         RotatingFileHandler("log.txt", maxBytes=5_000_000, backupCount=10),
         logging.StreamHandler(),
@@ -22,71 +23,50 @@ logging.basicConfig(
 )
 
 # ---------------- Config ----------------
-# Prefer environment over hardcoded defaults
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-API_ID = os.environ.get("API_ID")
-API_HASH = os.environ.get("API_HASH")
-AUTH_USERS = os.environ.get("AUTH_USERS", "")
+# Prefer env over hardcoded defaults
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+API_ID = int(os.getenv("API_ID", "0"))
+API_HASH = os.getenv("API_HASH", "")
+AUTH_USERS_ENV = os.getenv("AUTH_USERS", "")
 
-# Validate required envs early (better error message)
-missing = [k for k, v in [("BOT_TOKEN", BOT_TOKEN), ("API_ID", API_ID), ("API_HASH", API_HASH)] if not v]
-if missing:
-    raise RuntimeError(f"Missing required env vars: {', '.join(missing)}")
+if not (BOT_TOKEN and API_ID and API_HASH):
+    raise RuntimeError("BOT_TOKEN / API_ID / API_HASH are missing in environment")
 
-API_ID = int(API_ID)
-AUTH_USERS_LIST = [int(x) for x in AUTH_USERS.split(",") if x.strip()]
+# Auth Users list
+AUTH_USERS = [int(x) for x in AUTH_USERS_ENV.split(",") if x.strip().isdigit()]
 
-# Prefixes (some plugins import these from main)
+# Command prefixes that plugins may import
 prefixes = ["/", "~", "?", "!"]
 
+# Plugins root
 plugins = dict(root="plugins")
 
-# --------------- Tiny HTTP server (Render Web Service health) ---------------
-# If you run as Web Service on Render, it requires an open port.
-# This server is lightweight and won't affect the bot.
-async def start_health_server():
-    try:
-        from aiohttp import web
-    except Exception:
-        LOGGER.info("aiohttp not installed; skipping health server")
-        return
-
-    async def ok(_request):
-        return web.Response(text="ok")
-
-    app = web.Application()
-    app.add_routes([web.get("/", ok), web.get("/health", ok)])
-
-    port = int(os.environ.get("PORT", "8080"))
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    LOGGER.info(f"Health server listening on 0.0.0.0:{port}")
-
-# ---------------- Main ----------------
-bot = Client(
-    "bot-session",
-    bot_token=BOT_TOKEN,
+# ---------------- Client ----------------
+# in_memory=True => no .session file saved => avoids USER_DEACTIVATED due to stale sessions
+# name kept constant for plugin logs
+stark = Client(
+    name="bot-session",
     api_id=API_ID,
     api_hash=API_HASH,
-    sleep_threshold=20,
+    bot_token=BOT_TOKEN,
     plugins=plugins,
     workers=50,
+    sleep_threshold=20,
+    in_memory=True,
 )
 
-async def main():
-    # Start health server (harmless if running as Background Worker too)
-    health = asyncio.create_task(start_health_server())
+# Also expose alias 'bot' if some plugins import it
+bot = stark
 
+
+async def main():
     await bot.start()
     me = await bot.get_me()
     LOGGER.info(f"<--- @{me.username} Started (c) STARKBOT --->")
-    await idle()
-
+    await idle()  # block here until SIGTERM/SIGINT
     await bot.stop()
-    await health
+    LOGGER.info("<--- Bot Stopped --->")
+
 
 if __name__ == "__main__":
     asyncio.run(main())
-    LOGGER.info("<--- Bot Stopped --->")
