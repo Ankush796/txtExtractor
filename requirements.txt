@@ -1,33 +1,35 @@
-# Pin to Pyrogram v1 to keep filters.edited support in your plugins
-pyrogram==1.4.16
+# Core
+Pyrogram==2.0.106
+pyromod==3.1.6           # v3 is required for Pyrogram v2
 tgcrypto==1.2.5
-pyromod==1.5
-
+python-dotenv==1.0.0
+pytz
+psutil
+async-lru==2.0.2
+aiohttp==3.8.4
+aiofiles
+motor
+umongo==3.1.0
 requests==2.31.0
 certifi==2023.5.7
 charset-normalizer==3.1.0
 idna==3.4
-urllib3==2.0.3
-
-mutagen==1.46.0
-pyaes==1.6.1
-PySocks==1.7.1
-python-dotenv==1.0.0
-cloudscraper
+soupsieve==2.4.1
 beautifulsoup4==4.9.3
 bs4==0.0.1
-soupsieve==2.4.1
-
-aiohttp==3.8.4
-aiofiles
-psutil
-async-lru==2.0.2
-pytz
-
-yt-dlp==2023.6.22
+cloudscraper
+mutagen==1.46.0
 pycryptodome==3.18.0
-websockets==11.0.3   # only ONE version, conflict solved
+PySocks==1.7.1
+pyaes==1.6.1
+urllib3==2.0.3
+yt-dlp==2023.6.22
 py-tgcalls==0.6.0
-motor
-umongo==3.1.0
-speedtest-cli
+helper
+
+# IMPORTANT:
+# - Removed duplicate/old pins:
+#   * websockets==9.1 (conflict)
+#   * duplicate PySocks/pyaes
+# - Kept ONLY one websockets (needed by some libs):
+websockets==11.0.3
