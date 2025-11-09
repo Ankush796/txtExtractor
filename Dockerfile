@@ -7,19 +7,18 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
 
-# System dependencies
+# System deps (CLI ffmpeg + mediainfo yahin se aayenge)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libffi-dev \
     ffmpeg \
     mediainfo \
-    aria2 \
   && rm -rf /var/lib/apt/lists/*
 
-# (Optional but helpful) upgrade pip first
+# (Optional) keep pip fresh to help resolver
 RUN python -m pip install --upgrade pip
 
-# Install Python deps first for better cache
+# Install Python deps first for better caching
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
