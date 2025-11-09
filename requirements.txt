@@ -1,5 +1,5 @@
 Pyrogram==2.0.106
-tgcrypto==1.2.5
+TgCrypto==1.2.5
 pyromod==1.5
 
 requests==2.31.0
@@ -8,25 +8,30 @@ charset-normalizer==3.1.0
 idna==3.4
 urllib3==2.0.3
 
-beautifulsoup4==4.9.3
-soupsieve==2.4.1
+mutagen==1.46.0
+pyaes==1.6.1
+PySocks==1.7.1
+python-dotenv==1.0.0
+
 cloudscraper
+beautifulsoup4==4.12.2
+bs4==0.0.1
+soupsieve==2.4.1
 
 aiohttp==3.8.4
 aiofiles
+websockets==11.0.3
 
 yt-dlp==2023.6.22
-mutagen==1.46.0
 pycryptodome==3.18.0
-PySocks==1.7.1
-pyaes==1.6.1
-
-websockets==11.0.3
-py-tgcalls==0.6.0
-
 psutil
 async-lru==2.0.2
+
+py-tgcalls==0.6.0
+
 motor
+pymongo
 pytz
 umongo==3.1.0
+
 speedtest-cli
