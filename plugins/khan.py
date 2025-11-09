@@ -1,170 +1,216 @@
-import requests
+# plugins/khan.py
+
 import json
-import subprocess
-from pyrogram.types.messages_and_media import message
-import helper
-from pyromod import listen
-from pyrogram.types import Message
-import tgcrypto
-import pyrogram
-from pyrogram import Client, filters
-from pyrogram.types.messages_and_media import message
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from pyrogram.errors import FloodWait
-import time
-from pyrogram.types import User, Message
-from p_bar import progress_bar
-from subprocess import getstatusoutput
-import logging
 import os
-import sys
-import re
-from pyrogram import Client as bot
 import time
+import requests
+from pyrogram import Client, filters
+from pyrogram.types import Message
 
+# ---------- Local config (no import from main) ----------
+COMMAND_PREFIXES = ("/", "~", "?", "!")
+_AUTH = os.environ.get("AUTH_USERS", "").strip()
+AUTH_USERS = tuple(int(x) for x in _AUTH.split(",") if x.isdigit())
 
+# --------------------------------------------------------
 
-@bot.on_message(filters.command(["khan"]))
-async def account_login(bot: Client, m: Message):
+@Client.on_message(
+    (filters.chat(AUTH_USERS) if AUTH_USERS else filters.all) &
+    filters.private &
+    filters.command("khan", prefixes=COMMAND_PREFIXES)
+)
+async def account_login(client: Client, m: Message):
+    """
+    Login to Khan Sir (PenPencil) and dump video links into a txt.
+    """
     editable = await m.reply_text(
-        "Send **ID & Password** in this manner otherwise bot will not respond.\n\nSend like this:-  **ID*Password**")
-    rwa_url = "https://api.penpencil.xyz/v1/oauth/token"  
-    input1: Message = await bot.listen(editable.chat.id)
-    raw_text = input1.text
-    
-    headers = {
-            'Host': 'api.penpencil.xyz',
-            'authorization': 'Bearer c5c5e9c5721a1c4e322250fb31825b62f9715a4572318de90cfc93b02a8a8a75',
-            'client-id': '5f439b64d553cc02d283e1b4',
-            'client-version': '21.0',
-            'user-agent': 'Android',
-            'randomid': '385bc0ce778e8d0b',
-            'client-type': 'MOBILE',
-            'device-meta': '{APP_VERSION:19.0,DEVICE_MAKE:Asus,DEVICE_MODEL:ASUS_X00TD,OS_VERSION:6,PACKAGE_NAME:xyz.penpencil.khansirofficial}',
-            'content-type': 'application/json; charset=UTF-8'}
+        "Send **ID & Password** like:  `ID*Password`"
+    )
 
-    info = {
-  "username": "",
-  "otp": "",
-  "organizationId": "5f439b64d553cc02d283e1b4",
-  "password": "",
-  "client_id": "system-admin",
-  "client_secret": "KjPXuAVfC5xbmgreETNMaL7z",
-  "grant_type": "password"}
-    info["username"] = raw_text.split("*")[0]
-    info["password"] = raw_text.split("*")[1]
-    await input1.delete(True)
+    # Wait for creds
+    inp: Message = await client.listen(editable.chat.id)
+    raw = (inp.text or "").strip()
+    await inp.delete(True)
+
+    try:
+        username, password = raw.split("*", 1)
+        username, password = username.strip(), password.strip()
+    except ValueError:
+        return await editable.edit("❌ Format galat hai. Use: `ID*Password`")
+
+    # --- Auth step ---
+    auth_url = "https://api.penpencil.xyz/v1/oauth/token"
     s = requests.Session()
-    response = s.post(url = rwa_url, headers=headers, json=info, timeout=10)
-    if response.status_code == 200:
-        data = response.json()
-        token = data["data"]["access_token"]
-        await editable.edit(f"**Login Successful:** ```{token}```")
-    else:
-         await m.reply_text("Go back to response")
-    headers = {
-            'Host': 'api.penpencil.xyz',
-            'authorization': f"Bearer {token}",
-            'client-id': '5f439b64d553cc02d283e1b4',
-            'client-version': '21.0',
-            'user-agent': 'Android',
-            'randomid': '385bc0ce778e8d0b',
-            'client-type': 'MOBILE',
-            'device-meta': '{APP_VERSION:19.0,DEVICE_MAKE:Asus,DEVICE_MODEL:ASUS_X00TD,OS_VERSION:6,PACKAGE_NAME:xyz.penpencil.khansirofficial}',
-            'content-type': 'application/json; charset=UTF-8',
+
+    base_headers = {
+        "Host": "api.penpencil.xyz",
+        "client-id": "5f439b64d553cc02d283e1b4",
+        "client-version": "21.0",
+        "user-agent": "Android",
+        "randomid": "385bc0ce778e8d0b",
+        "client-type": "MOBILE",
+        "device-meta": "{APP_VERSION:19.0,DEVICE_MAKE:Asus,DEVICE_MODEL:ASUS_X00TD,OS_VERSION:6,PACKAGE_NAME:xyz.penpencil.khansirofficial}",
+        "content-type": "application/json; charset=UTF-8",
     }
+
+    auth_headers = {
+        **base_headers,
+        "authorization": "Bearer c5c5e9c5721a1c4e322250fb31825b62f9715a4572318de90cfc93b02a8a8a75",
+    }
+
+    payload = {
+        "username": username,
+        "otp": "",
+        "organizationId": "5f439b64d553cc02d283e1b4",
+        "password": password,
+        "client_id": "system-admin",
+        "client_secret": "KjPXuAVfC5xbmgreETNMaL7z",
+        "grant_type": "password",
+    }
+
+    try:
+        r = s.post(auth_url, headers=auth_headers, json=payload, timeout=20)
+        r.raise_for_status()
+        token = r.json()["data"]["access_token"]
+    except Exception as e:
+        return await editable.edit(f"❌ Login failed:\n`{e}`")
+
+    await editable.edit("✅ Login successful.\nFetching batches…")
+
+    api_headers = {
+        **base_headers,
+        "authorization": f"Bearer {token}",
+    }
+
+    # --- List batches ---
     params = {
-       'mode': '1',
-       'batchCategoryIds': '619bedc3394f824a71d8e721',
-       'organisationId': '5f439b64d553cc02d283e1b4',
-       'page': '1',
-       'programId': '5f476e70a64b4a00ddd81379',
+        "mode": "1",
+        "batchCategoryIds": "619bedc3394f824a71d8e721",
+        "organisationId": "5f439b64d553cc02d283e1b4",
+        "page": "1",
+        "programId": "5f476e70a64b4a00ddd81379",
     }
-    response = s.get('https://api.penpencil.xyz/v3/batches/my-batches', params=params, headers=headers).json()["data"]
-    cool = ""
-    mm = "KhanSir"
-    for data in response:
-        FFF = "**BATCH-ID  -  BATCH NAME**"
-        #batch=(data["name"])
-        aa = f" ```{data['_id']}```      - **{data['name']}**\n\n"
-        #aa=f"```{data['name']}```  :  ```{data['_id']}\n```"
-        if len(f'{cool}{aa}') > 4096:
-            cool = ""
-        cool += aa
-    await editable.edit(f'{"**You have these batches :-**"}\n\n{FFF}\n\n{cool}')
-    #await editable.edit(f'{"**You have these batches :-**"}\n\n{FFF}\n\n{cool}')
-    editable1= await m.reply_text("**Now send the Batch ID to Download**")
-    input3 = message = await bot.listen(editable.chat.id)
-    raw_text3 = input3.text
-    response2 = s.get(f'https://api.penpencil.xyz/v3/batches/{raw_text3}/details', headers=headers).json()["data"]
-    response3 = s.get(f'https://api.penpencil.xyz/v3/batches/{raw_text3}/details', headers=headers).json()["data"]["subjects"]
-   
-    batch = response2['name']
-    vj=""
-    for data in response3:
-        tids = data['_id']
-        idid=f"{tids}&"
-        if len(f"{vj}{idid}")>4096:
-            vj = ""
-        vj+=tids
-    await editable1.edit(f"**Send the Subject id :-**\n```{vj}```")
-    input4 = message = await bot.listen(editable.chat.id)
-    raw_text4 = input4.text
-    response02 = s.get(f'https://api.penpencil.xyz/v2/batches/{raw_text3}/subject/{raw_text4}/topics?page=1', headers=headers).json()["data"]
-    
-    cool2 = ""
-    vj = ""
-    for dat in response02:
-        FF = "**SUBJECT-ID - SUBJECT NAME - TOTAL VIDEOS - PDFS**"
-        aa = f" ```{dat['_id']}```- **{dat['name']} - {dat['videos']} - {dat['notes']}**\n\n"
-        idid=f"{dat['_id']}&"
-        if len(f"{vj}{idid}")>4096:
-            vj = ""
-        vj+= idid     
-        cool2 += aa
-    await editable1.edit(f'{"**You have these Subjects in this Batch:-**"}\n\n{FF}\n\n{cool2}')
-    editable2 = await m.reply_text(f"**Enter this to download full batch :-**\n```{vj}```")
-    input5 = message = await bot.listen(editable.chat.id)
-    raw_text5 = input5.text
-    xv = raw_text5.split('&')
-    for y in range(0,len(xv)):
-      t =xv[y].strip()
-      html3 = s.get("https://api.penpencil.xyz/v2/batches/"+raw_text3+"/subject/"+raw_text4+"/contents?page=1&tag="+t+"&contentType=videos",headers=headers).content
-      ff = json.loads(html3)
-      tpage = (ff["paginate"])["totalCount"]//ff["paginate"]["limit"]+2
-      print("Total page:",tpage)
-      for i in range(1,tpage)[::-1]:
-        html4 = s.get("https://api.penpencil.xyz/v2/batches/"+raw_text3+"/subject/"+raw_text4+"/contents?page="+str(i)+"&tag="+t+"&contentType=videos",headers=headers).json()["data"]
-        html4.reverse()
-        #break
-        for dat in html4:
-          try:
-            class_title=(dat["topic"])
-            class_url=dat["url"].replace("d1d34p8vz63oiq", "d3nzo6itypaz07").replace("mpd", "m3u8").strip()
-            cc = f"{dat['topic']}:{dat['url']}"
-            with open(f"{mm}-{batch}.txt", 'a') as f:
-                f.write(f"{class_title}:{class_url}\n")
-          except KeyError:
-            pass
-    await m.reply_document(f"{mm}-{batch}.txt")
-    """
 
-        print("Downloading pdfs")     
-        response5 = s.get("https://api.penpencil.xyz/v2/batches/"+raw_text3+"/subject/"+raw_text4+"/contents?page=1&tag="+t+"&contentType=notes",headers=headers).json()
-        tpage = response5["paginate"]["totalCount"]//response5["paginate"]["limit"]+2
-        print(tpage)
-        for i in range(1,tpage)[::-1]:
-          response6 = s.get("https://api.penpencil.xyz/v2/batches/"+raw_text3+"/subject/"+raw_text4+"/contents?page="+str(i)+"&tag="+t+"&contentType=notes",headers=headers).json()["data"]
-          for data in response6:
-            try:
-              title=(data["homeworkIds"][0]["topic"])
-              baseurl= data["homeworkIds"][0]["attachmentIds"][0]["baseUrl"]
-              key = data["homeworkIds"][0]["attachmentIds"][0]["key"]
-            except KeyError:
-              pass
-              with open(f"{batch}.txt", 'a') as f:
-                  f.write(f"{title}:{baseurl}{key}\n")
-    await m.reply_text("Done")
-    """
+    try:
+        batches = s.get(
+            "https://api.penpencil.xyz/v3/batches/my-batches",
+            params=params,
+            headers=api_headers,
+            timeout=20,
+        ).json()["data"]
+    except Exception as e:
+        return await editable.edit(f"❌ Batches fetch error:\n`{e}`")
 
+    if not batches:
+        return await editable.edit("⚠️ No batches found.")
 
+    text = ["**You have these batches:**\n"]
+    for b in batches:
+        text.append(f"```{b['_id']}```  — **{b['name']}**")
+    await editable.edit("\n".join(text))
+
+    # --- Ask for batch id ---
+    ask_batch = await m.reply_text("**Send the Batch ID to proceed**")
+    inp_batch: Message = await client.listen(ask_batch.chat.id)
+    batch_id = (inp_batch.text or "").strip()
+    await inp_batch.delete(True)
+
+    # Batch details + subjects
+    try:
+        details = s.get(
+            f"https://api.penpencil.xyz/v3/batches/{batch_id}/details",
+            headers=api_headers,
+            timeout=20,
+        ).json()["data"]
+        subjects = details["subjects"]
+        batch_name = details["name"]
+    except Exception as e:
+        return await ask_batch.edit(f"❌ Batch details error:\n`{e}`")
+
+    # Subject IDs list
+    subj_ids = "&".join(s["_id"] for s in subjects)
+    await ask_batch.edit(f"**Send Subject ID (ya multiple `&` se):**\n```{subj_ids}```")
+
+    inp_subj: Message = await client.listen(m.chat.id)
+    subject_id = (inp_subj.text or "").strip()
+    await inp_subj.delete(True)
+
+    # Topic tags (acts as groups inside subject)
+    try:
+        topics = s.get(
+            f"https://api.penpencil.xyz/v2/batches/{batch_id}/subject/{subject_id}/topics?page=1",
+            headers=api_headers,
+            timeout=20,
+        ).json()["data"]
+    except Exception as e:
+        return await m.reply_text(f"❌ Topics fetch error:\n`{e}`")
+
+    tags = "&".join(t["_id"] for t in topics)
+    msg = await m.reply_text(
+        f"**Enter to download full subject:**\n```{tags}```\n\n(You can trim this list)"
+    )
+
+    inp_tags: Message = await client.listen(m.chat.id)
+    tag_text = (inp_tags.text or "").strip()
+    await inp_tags.delete(True)
+
+    out_name = f"KhanSir-{batch_name}.txt"
+    # Clean old file if exists
+    try:
+        if os.path.exists(out_name):
+            os.remove(out_name)
+    except Exception:
+        pass
+
+    tag_list = [t.strip() for t in tag_text.split("&") if t.strip()]
+    await msg.edit("⏬ Collecting video links…")
+
+    # Collect videos for each tag
+    for tag in tag_list:
+        try:
+            # First page to get pagination
+            pg0 = s.get(
+                f"https://api.penpencil.xyz/v2/batches/{batch_id}/subject/{subject_id}/contents"
+                f"?page=1&tag={tag}&contentType=videos",
+                headers=api_headers,
+                timeout=20,
+            ).json()
+            total = pg0["paginate"]["totalCount"]
+            limit = pg0["paginate"]["limit"]
+            pages = (total // limit) + 2
+
+            # Walk pages from last to first (as original code)
+            for page in range(1, pages)[::-1]:
+                data = s.get(
+                    f"https://api.penpencil.xyz/v2/batches/{batch_id}/subject/{subject_id}/contents"
+                    f"?page={page}&tag={tag}&contentType=videos",
+                    headers=api_headers,
+                    timeout=20,
+                ).json()["data"]
+                data.reverse()
+
+                lines = []
+                for item in data:
+                    try:
+                        title = item["topic"]
+                        raw_url = item["url"]
+                        # cdn swap (as in original)
+                        m3u8 = raw_url.replace("d1d34p8vz63oiq", "d3nzo6itypaz07").replace("mpd", "m3u8").strip()
+                        lines.append(f"{title}:{raw_url}")
+                    except KeyError:
+                        continue
+
+                if lines:
+                    with open(out_name, "a", encoding="utf-8") as f:
+                        f.write("\n".join(lines) + "\n")
+
+        except Exception as e:
+            await m.reply_text(f"⚠️ Tag `{tag}` error:\n`{e}`")
+            continue
+
+    try:
+        await m.reply_document(out_name)
+    except Exception as e:
+        return await m.reply_text(f"❌ File send failed:\n`{e}`")
+
+    await m.reply_text("✅ Done")
