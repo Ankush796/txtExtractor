@@ -18,6 +18,7 @@
 #  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 #  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 #  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+#  SOFTWARE
 #  Code edited By Cryptostark
 
 import urllib
@@ -49,7 +50,7 @@ from Crypto.Cipher import AES
 from Crypto.Util.Padding import unpad
 from base64 import b64encode, b64decode
 
-@bot.on_message(filters.command(["winners"]) & ~filters.edited)
+@bot.on_message(filters.command(["winners"]))  # <-- filters.edited removed
 async def account_login(bot: Client, m: Message):
     global cancel
     cancel = False
