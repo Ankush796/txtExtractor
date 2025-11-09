@@ -6,17 +6,10 @@ import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
 
-from pyrogram import Client, idle
+from pyrogram import Client, idle, filters
 from config import Config
 
-# --- Optional: Conversations via pyromod (won't crash if missing)
-try:
-    from pyromod import listen  # noqa: F401
-    HAVE_PYROMOD = True
-except Exception:
-    HAVE_PYROMOD = False
-
-# Logging
+# ---------- Logging ----------
 LOGGER = logging.getLogger("starkbot")
 logging.basicConfig(
     level=logging.INFO,
@@ -28,65 +21,63 @@ logging.basicConfig(
     ],
 )
 
-# --- Validate envs early
-missing = []
-if not os.environ.get("BOT_TOKEN", Config.BOT_TOKEN):
-    missing.append("BOT_TOKEN")
-if not os.environ.get("API_ID") and not Config.API_ID:
-    missing.append("API_ID")
-if not os.environ.get("API_HASH", Config.API_HASH):
-    missing.append("API_HASH")
-if missing:
-    raise RuntimeError(f"Missing required environment variables: {', '.join(missing)}")
-
-# Auth users
+# ---------- Env / Config ----------
+# AUTH_USERS env -> list[int]
 AUTH_USERS = []
-raw_auth = os.environ.get("AUTH_USERS", getattr(Config, "AUTH_USERS", ""))
-if raw_auth:
-    for chat in raw_auth.split(","):
-        chat = chat.strip()
-        if chat.isdigit():
-            AUTH_USERS.append(int(chat))
+if Config.AUTH_USERS:
+    try:
+        AUTH_USERS = [int(x) for x in str(Config.AUTH_USERS).split(",") if x.strip()]
+    except Exception:
+        LOGGER.warning("AUTH_USERS env invalid, skipping.")
 
-# Command prefixes
-prefixes = ["/", "~", "?", "!"]
+# ---------- Pyrogram v2 compatibility shim ----------
+# A lot of old projects use `~filters.edited`. Pyrogram v2 me `filters.edited` nahi hota.
+# To avoid touching every plugin, we monkey-patch a no-op `filters.edited`
+if not hasattr(filters, "edited"):
+    # create a Filter that always returns False so `~filters.edited` becomes a no-op True filter
+    try:
+        from pyrogram.filters import create as _create_filter  # v2 helper
+        _edited_dummy = _create_filter(lambda *_args, **_kwargs: False, "edited_compat")
+    except Exception:
+        # Extreme fallback: define minimal object with invert operator
+        class _EditedDummy:
+            def __invert__(self):  # ~dummy -> truthy object used in & chains
+                return self
+            def __and__(self, other):  # (~dummy) & X -> X
+                return other
+            __rand__ = __and__
+        _edited_dummy = _EditedDummy()
 
-# Plugins
-plugins = dict(root="plugins")
+    # inject into module so plugins can reference `filters.edited`
+    setattr(filters, "edited", _edited_dummy)
 
-# --- Critical fix:
-# Use IN-MEMORY session so Pyrogram never reuses any old user session file.
-# This avoids the 401 USER_DEACTIVATED caused by a stale user auth session.
+# ---------- Plugins path ----------
+PLUGINS = dict(root="plugins")
+
+# ---------- Build Client ----------
+# Important fix for USER_DEACTIVATED:
+# Use a fresh in-memory session so old *user* session files don't get reused.
+# This ensures bot authenticates purely via BOT_TOKEN.
+BOT_SESSION_NAME = "starkbot"
 bot = Client(
-    name="starkbot",                 # just an identifier (not a file)
-    bot_token=os.environ.get("BOT_TOKEN", Config.BOT_TOKEN),
-    api_id=int(os.environ.get("API_ID", Config.API_ID)),
-    api_hash=os.environ.get("API_HASH", Config.API_HASH),
+    name=BOT_SESSION_NAME,
+    api_id=Config.API_ID,
+    api_hash=Config.API_HASH,
+    bot_token=Config.BOT_TOKEN,
     sleep_threshold=20,
-    plugins=plugins,
+    plugins=PLUGINS,
     workers=50,
-    in_memory=True,                  # <-- no .session file on disk
+    in_memory=True,  # <-- critical: prevents stale user sessions from disk
 )
 
 async def main():
-    # safety: if any *.session got baked in repo/run dir, remove them
-    for f in os.listdir("."):
-        if f.endswith(".session") or ".session-journal" in f:
-            try:
-                os.remove(f)
-                LOGGER.info(f"Removed stray session file: {f}")
-            except Exception:
-                pass
-
     await bot.start()
     me = await bot.get_me()
-    LOGGER.info(f"<--- @{me.username} Started (Pyrogram {bot.__version__}) --->")
-    if not HAVE_PYROMOD:
-        LOGGER.info("pyromod not installed; Conversations disabled (optional).")
+    LOGGER.info(f"<--- @{me.username} Started (Pyrogram v2) --->")
     await idle()
     await bot.stop()
     LOGGER.info("<--- Bot Stopped --->")
 
 if __name__ == "__main__":
-    # Modern, safer loop runner
+    # Prefer asyncio.run in modern Python
     asyncio.run(main())
