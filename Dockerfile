@@ -7,16 +7,25 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
 
+# System dependencies
+# - ffmpeg & mediainfo as system binaries (not Python packages)
+# - build-essential & libffi-dev for crypto/build wheels
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libffi-dev \
     ffmpeg \
+    mediainfo \
     aria2 \
   && rm -rf /var/lib/apt/lists/*
 
+# Upgrade pip first for better resolver/wheels
+RUN python -m pip install --upgrade pip
+
+# Install Python deps first for better caching
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# App code
 COPY . .
 
 CMD ["python", "main.py"]
