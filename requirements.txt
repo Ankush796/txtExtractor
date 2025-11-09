@@ -1,26 +1,39 @@
+# Core telegram stack
 Pyrogram==2.0.106
 tgcrypto==1.2.5
-requests==2.31.0
 pyromod==1.5
+pyaes==1.6.1
+PySocks==1.7.1
+
+# HTTP stack (cloudscraper needs urllib3<2)
+requests==2.31.0
+urllib3==1.26.18
 certifi==2023.5.7
 charset-normalizer==3.1.0
 idna==3.4
-mutagen==1.46.0
-pyaes==1.6.1
-PySocks==1.7.1
-python-dotenv==1.0.0
-cloudscraper
+cloudscraper==1.2.71
+
+# Parsing / scraping
 beautifulsoup4==4.12.3
+
+# Async/network
 aiohttp==3.8.4
-aiofiles
+aiofiles==23.1.0
+websockets==11.0.3
+async-lru==2.0.2
+
+# Media / tools
+mutagen==1.46.0
 yt-dlp==2023.6.22
 pycryptodome==3.18.0
-websockets==11.0.3
-psutil
-async-lru==2.0.2
-urllib3==2.0.3
-py-tgcalls==0.6.0
-motor
-pytz
+psutil==5.9.5
+
+# Timezone
+pytz==2023.3
+
+# Database
+motor==3.3.2
 umongo==3.1.0
-speedtest-cli
+
+# CLI utils
+speedtest-cli==2.1.3
