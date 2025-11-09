@@ -8,26 +8,29 @@ charset-normalizer==3.1.0
 idna==3.4
 urllib3==2.0.3
 
-mutagen==1.46.0
-pyaes==1.6.1
-PySocks==1.7.1
-python-dotenv==1.0.0
+aiohttp==3.8.4
+aiofiles==23.1.0
+async-lru==2.0.2
+websockets==11.0.3        # <-- single version; conflict solved
 
-cloudscraper
+yt-dlp==2023.6.22
+mutagen==1.46.0
+pycryptodome==3.18.0
+PySocks==1.7.1
+pyaes==1.6.1
+psutil==5.9.8
+pytz==2023.3
 beautifulsoup4==4.9.3
 bs4==0.0.1
 soupsieve==2.4.1
-
-aiohttp==3.8.4
-aiofiles
-
-yt-dlp==2023.6.22
-pycryptodome==3.18.0
-websockets==10.4
+cloudscraper==1.2.71
 
 py-tgcalls==0.6.0
-motor
-pytz
+motor==3.3.2
 umongo==3.1.0
-psutil
-speedtest-cli
+speedtest-cli==2.1.3
+pymediainfo==6.1.0        # python wrapper; CLI is installed via apt
+
+# NOTE:
+# - Removed duplicates (PySocks, pyaes, websockets) and the unknown "helper" package.
+# - Do NOT add "ffmpeg" or "mediainfo" here; they are installed via apt above.
