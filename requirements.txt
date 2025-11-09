@@ -8,23 +8,20 @@ charset-normalizer==3.1.0
 idna==3.4
 urllib3==2.0.3
 
-PySocks==1.7.1
-pyaes==1.6.1
-mutagen==1.46.0
-python-dotenv==1.0.0
-
-cloudscraper
 beautifulsoup4==4.9.3
-bs4==0.0.1
 soupsieve==2.4.1
+cloudscraper
 
 aiohttp==3.8.4
 aiofiles
 
 yt-dlp==2023.6.22
+mutagen==1.46.0
 pycryptodome==3.18.0
+PySocks==1.7.1
+pyaes==1.6.1
 
-websockets==9.1
+websockets==11.0.3
 py-tgcalls==0.6.0
 
 psutil
