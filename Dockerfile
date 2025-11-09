@@ -7,7 +7,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
 
-# System deps (ffmpeg + mediainfo yahin se aayenge; pip se nahi)
+# System deps
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libffi-dev \
@@ -16,19 +16,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     aria2 \
   && rm -rf /var/lib/apt/lists/*
 
-# (Optional) Update pip to latest for better resolver
-RUN python -m pip install --upgrade pip
-
-# Install Python deps first for better caching
+# Python deps (upgrade pip first)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN python -m pip install --upgrade pip \
+ && pip install --no-cache-dir -r requirements.txt
 
-# Copy the app
+# App code
 COPY . .
 
-# IMPORTANT: ensure old sessions aren't baked into image
-# If you keep file-based sessions, add a .dockerignore entry:
-# *.session
-# *.session-journal
+# Ensure any leftover .session files from repo are gone (safety)
+RUN find /app -maxdepth 1 -type f -name "*.session*" -delete || true
 
 CMD ["python", "main.py"]
