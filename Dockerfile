@@ -7,7 +7,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /app
 
-# System deps
+# System dependencies
+# NOTE: ffmpeg & mediainfo are system binaries (pip se nahi aate)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libffi-dev \
@@ -16,15 +17,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     aria2 \
   && rm -rf /var/lib/apt/lists/*
 
-# Python deps (upgrade pip first)
+# Install Python deps first for layer caching
 COPY requirements.txt .
-RUN python -m pip install --upgrade pip \
- && pip install --no-cache-dir -r requirements.txt
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# App code
+# Copy app code
 COPY . .
 
-# Ensure any leftover .session files from repo are gone (safety)
-RUN find /app -maxdepth 1 -type f -name "*.session*" -delete || true
-
+# Run
 CMD ["python", "main.py"]
