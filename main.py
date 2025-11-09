@@ -1,19 +1,25 @@
 #  MIT License
-#  (c) Your project
+# (c) You
 
 import os
+import sys
 import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
 
-from config import Config
-from pyrogram import Client, idle, filters
-from pyromod import listen  # conversations helper (installed now)
-import tgcrypto  # noqa: F401 (forces wheel load)
+from pyrogram import Client, filters, idle
 
-# -------------------------------
-# Logging
-# -------------------------------
+# ---- Optional: pyromod safe import (no crash if unused) ----
+try:
+    from pyromod import listen  # noqa: F401
+except Exception:
+    pass
+
+# ---- Make this module importable as "main" for old plugins ----
+# (plugins that do: from main import LOGGER, prefixes, AUTH_USERS)
+sys.modules.setdefault("main", sys.modules[__name__])
+
+# ---- Logger ----
 LOGGER = logging.getLogger(__name__)
 logging.basicConfig(
     level=logging.INFO,
@@ -25,86 +31,64 @@ logging.basicConfig(
     ],
 )
 
-# -------------------------------
-# Global settings for plugins
-# (Plugins import these from main)
-# -------------------------------
-AUTH_USERS = [int(x) for x in str(Config.AUTH_USERS).split(",") if x.strip()]
-prefixes = ["/", "~", "?", "!"]  # plugins use this
+# ---- Config via env (fallbacks allowed, but prefer setting env on Render) ----
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+API_ID = int(os.environ.get("API_ID", "0") or "0")
+API_HASH = os.environ.get("API_HASH")
+AUTH_USERS = [
+    int(x) for x in os.environ.get("AUTH_USERS", "").split(",") if x.strip().isdigit()
+]
 
-# -------------------------------
-# Pyrogram v1 -> v2 compatibility:
-# A lot of old code uses ~filters.edited
-# Pyrogram v2 has no filters.edited. We add a shim so that
-# "~filters.edited" is always True (i.e., "not edited") without
-# touching every plugin.
-# -------------------------------
+# ---- Prefixes (for plugins importing from main) ----
+prefixes = ["/", "~", "?", "!"]
+
+# ---- Pyrogram v2 compatibility: add filters.edited if missing ----
 if not hasattr(filters, "edited"):
-    # create a filter that never matches; its negation matches all
-    # so "~filters.edited" will behave like "not edited" but effectively pass-through
-    from pyrogram.filters import create
+    def _edited(_, __, m):
+        # True if message is an edit (has edit_date)
+        return bool(getattr(m, "edit_date", None))
+    filters.edited = filters.create(_edited)
 
-    filters.edited = create(lambda *_: False)
-
-# -------------------------------
-# Small HTTP keep-alive for Render Web Service
-# If your Render service type is "Background Worker", you can skip this.
-# For Web Service, Render scans $PORT; we open a tiny server to answer "ok".
-# -------------------------------
-def _start_keepalive_server():
-    port = os.environ.get("PORT")
-    if not port:
-        return
-    import threading
-    from http.server import BaseHTTPRequestHandler, HTTPServer
-
-    class _H(BaseHTTPRequestHandler):
-        def do_GET(self):
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b"ok")
-
-        def log_message(self, fmt, *args):
-            return  # silence
-
-    def _serve():
-        try:
-            HTTPServer(("0.0.0.0", int(port)), _H).serve_forever()
-        except Exception as e:
-            LOGGER.warning(f"Keepalive server error: {e}")
-
-    threading.Thread(target=_serve, daemon=True).start()
-    LOGGER.info(f"Keepalive HTTP server listening on :{port}")
-
-# -------------------------------
-# Pyrogram Client (bot)
-# Key choices:
-# - session_name is "bot-session" and in_memory=True to avoid
-#   reusing any old *user* session that could trigger USER_DEACTIVATED.
-# - plugins auto-load from ./plugins
-# -------------------------------
+# ---- Plugins root ----
 plugins = dict(root="plugins")
 
-bot = Client(
-    name="bot-session",
-    bot_token=Config.BOT_TOKEN,
-    api_id=Config.API_ID,
-    api_hash=Config.API_HASH,
-    sleep_threshold=20,
-    plugins=plugins,
-    workers=50,
-    in_memory=True,  # critical: prevent stale on-disk sessions
-)
+
+def validate_config():
+    missing = []
+    if not BOT_TOKEN:
+        missing.append("BOT_TOKEN")
+    if not API_ID:
+        missing.append("API_ID")
+    if not API_HASH:
+        missing.append("API_HASH")
+    if missing:
+        raise RuntimeError(f"Missing required environment vars: {', '.join(missing)}")
+
 
 async def main():
-    _start_keepalive_server()
+    validate_config()
 
-    await bot.start()
-    me = await bot.get_me()
+    # Client session name keep stable for Render restarts
+    app = Client(
+        name="bot-session",
+        bot_token=BOT_TOKEN,
+        api_id=API_ID,
+        api_hash=API_HASH,
+        sleep_threshold=20,
+        plugins=plugins,
+        workers=50,
+        in_memory=True,  # avoid writing session file to disk
+    )
+
+    await app.start()
+    me = await app.get_me()
     LOGGER.info(f"<--- @{me.username} Started (c) STARKBOT --->")
-    await idle()
-    await bot.stop()
-    LOGGER.info("<--- Bot Stopped --->")
+    try:
+        await idle()
+    finally:
+        await app.stop()
+        LOGGER.info("<--- Bot Stopped --->")
+
 
 if __name__ == "__main__":
     asyncio.run(main())
