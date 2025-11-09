@@ -1,16 +1,22 @@
 #  MIT License
-#  (c) original authors
+#  (c) Dan / delivrance & contributors
 
 import os
 import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
 
-from pyrogram import Client, idle, filters
 from config import Config
+from pyrogram import Client, idle, filters
 
-# ---------- Logging ----------
-LOGGER = logging.getLogger("starkbot")
+# ---- Optional: pyromod (don't crash if missing) ----
+try:
+    from pyromod import listen  # noqa: F401  (if you use Conversations)
+except Exception:
+    listen = None  # Safe fallback; app will still start
+
+# ---- Logging (make LOGGER available before plugins import) ----
+LOGGER = logging.getLogger("StarkBot")
 logging.basicConfig(
     level=logging.INFO,
     format="%(name)s - %(message)s",
@@ -21,63 +27,43 @@ logging.basicConfig(
     ],
 )
 
-# ---------- Env / Config ----------
-# AUTH_USERS env -> list[int]
-AUTH_USERS = []
-if Config.AUTH_USERS:
-    try:
-        AUTH_USERS = [int(x) for x in str(Config.AUTH_USERS).split(",") if x.strip()]
-    except Exception:
-        LOGGER.warning("AUTH_USERS env invalid, skipping.")
+# ---- Auth users & prefixes (available at module import time) ----
+AUTH_USERS = [int(x) for x in str(Config.AUTH_USERS).split(",") if x.strip()]
+prefixes = ["/", "~", "?", "!"]
 
-# ---------- Pyrogram v2 compatibility shim ----------
-# A lot of old projects use `~filters.edited`. Pyrogram v2 me `filters.edited` nahi hota.
-# To avoid touching every plugin, we monkey-patch a no-op `filters.edited`
+# ---- Pyrogram v2 compatibility: provide filters.edited shim ----
+# Many old plugins use `~filters.edited` or `filters.edited`.
+# In v2 this attr isn't present; we emulate it here so you don't have to
+# touch every plugin file.
 if not hasattr(filters, "edited"):
-    # create a Filter that always returns False so `~filters.edited` becomes a no-op True filter
-    try:
-        from pyrogram.filters import create as _create_filter  # v2 helper
-        _edited_dummy = _create_filter(lambda *_args, **_kwargs: False, "edited_compat")
-    except Exception:
-        # Extreme fallback: define minimal object with invert operator
-        class _EditedDummy:
-            def __invert__(self):  # ~dummy -> truthy object used in & chains
-                return self
-            def __and__(self, other):  # (~dummy) & X -> X
-                return other
-            __rand__ = __and__
-        _edited_dummy = _EditedDummy()
+    def _edited_func(_, __, m):
+        # edited messages have edit_date set
+        return bool(getattr(m, "edit_date", None))
+    filters.edited = filters.create(_edited_func)
 
-    # inject into module so plugins can reference `filters.edited`
-    setattr(filters, "edited", _edited_dummy)
+# ---- Plugins folder ----
+plugins = dict(root="plugins")
 
-# ---------- Plugins path ----------
-PLUGINS = dict(root="plugins")
-
-# ---------- Build Client ----------
-# Important fix for USER_DEACTIVATED:
-# Use a fresh in-memory session so old *user* session files don't get reused.
-# This ensures bot authenticates purely via BOT_TOKEN.
-BOT_SESSION_NAME = "starkbot"
+# ---- Build Client (exists before .start(), so plugins importing from main work) ----
 bot = Client(
-    name=BOT_SESSION_NAME,
+    "StarkBot",
+    bot_token=Config.BOT_TOKEN,
     api_id=Config.API_ID,
     api_hash=Config.API_HASH,
-    bot_token=Config.BOT_TOKEN,
     sleep_threshold=20,
-    plugins=PLUGINS,
+    plugins=plugins,
     workers=50,
-    in_memory=True,  # <-- critical: prevents stale user sessions from disk
+    in_memory=True,  # avoids writing session file on disk (optional)
 )
 
 async def main():
     await bot.start()
     me = await bot.get_me()
-    LOGGER.info(f"<--- @{me.username} Started (Pyrogram v2) --->")
+    LOGGER.info(f"<--- @{me.username} Started (c) STARKBOT --->")
     await idle()
     await bot.stop()
     LOGGER.info("<--- Bot Stopped --->")
 
 if __name__ == "__main__":
-    # Prefer asyncio.run in modern Python
+    # asyncio.get_event_loop().run_until_complete(main())  # old
     asyncio.run(main())
