@@ -1,97 +1,70 @@
-#  MIT License (header as-is)
+#  MIT License
+#
+#  Copyright (c) 2019-present Dan <https://github.com/delivrance>
+#
+#  Permission is hereby granted, free of charge, to any person obtaining a copy
+#  of this software and associated documentation files (the "Software"), to deal
+#  in the Software without restriction, including without limitation the rights
+#  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+#  copies of the Software, and to permit persons to whom the Software is
+#  furnished to do so, subject to the following conditions:
+#
+#  The above copyright notice and this permission notice shall be included in all
+#  copies or substantial portions of the Software.
+#
+#  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+#  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+#  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+#  SOFTWARE
+
 
 import os
-import asyncio
-import logging
+from config import Config
+from pyrogram import Client, idle
+import asyncio, logging
+import tgcrypto
+from pyromod import listen
 from logging.handlers import RotatingFileHandler
 
-from config import Config
-from pyrogram import Client, idle, filters
-
-# --- Optional: PyroMod (Conversations) ---
-try:
-    from pyromod import listen  # noqa: F401  (only to enable conversations)
-except Exception as e:
-    logging.warning("PyroMod load warning: %s", e)
-
-# -------- Logger ----------
 LOGGER = logging.getLogger(__name__)
 logging.basicConfig(
     level=logging.INFO,
     format="%(name)s - %(message)s",
     datefmt="%d-%b-%y %H:%M:%S",
     handlers=[
-        RotatingFileHandler("log.txt", maxBytes=5_000_000, backupCount=10),
+        RotatingFileHandler(
+            "log.txt", maxBytes=5000000, backupCount=10
+        ),
         logging.StreamHandler(),
     ],
 )
 
-# -------- filters.edited shim for Pyrogram v2 ----------
-# Many old plugins use: ~filters.edited
-if not hasattr(filters, "edited"):
-    from pyrogram.filters import create as _create_filter  # type: ignore
+# Auth Users
+AUTH_USERS = [ int(chat) for chat in Config.AUTH_USERS.split(",") if chat != '']
 
-    def _is_edited(_, __, m):
-        # True if message is an EDIT (has edit_date)
-        return getattr(m, "edit_date", None) is not None
-
-    filters.edited = _create_filter(_is_edited)  # so ~filters.edited works again
-
-# -------- Auth Users ----------
-AUTH_USERS = [int(x) for x in (Config.AUTH_USERS or "").split(",") if x.strip().isdigit()]
-
-# -------- Prefixes (if your plugins import it) ----------
+# Prefixes 
 prefixes = ["/", "~", "?", "!"]
 
-# -------- Plugins root ----------
 plugins = dict(root="plugins")
-
-# -------- Tiny HTTP server for Render port scan ----------
-# If service is "Web Service", Render expects a port to be bound.
-# We start a minimal aiohttp server when PORT is present.
-async def _start_health_server():
-    port = int(os.getenv("PORT", "0") or "0")
-    if port <= 0:
-        return
-
-    try:
-        from aiohttp import web
-
-        async def ok(_):
-            return web.Response(text="ok")
-
-        app = web.Application()
-        app.router.add_get("/", ok)
-        runner = web.AppRunner(app)
-        await runner.setup()
-        site = web.TCPSite(runner, "0.0.0.0", port)
-        await site.start()
-        LOGGER.info("Health server running on 0.0.0.0:%s", port)
-    except Exception as e:
-        LOGGER.warning("Health server failed: %s", e)
-
-# -------- Bot client ----------
-bot = Client(
-    name="bot-session",               # session name
-    bot_token=Config.BOT_TOKEN,
-    api_id=Config.API_ID,
-    api_hash=Config.API_HASH,
-    sleep_threshold=20,
-    plugins=plugins,
-    workers=50,
-)
-
-async def main():
-    # Start tiny HTTP server if needed by Render
-    await _start_health_server()
-
-    # Start bot
-    await bot.start()
-    me = await bot.get_me()
-    LOGGER.info(f"<--- @{me.username} Started (c) STARKBOT --->")
-    await idle()
-    await bot.stop()
-    LOGGER.info("<--- Bot Stopped --->")
-
-if __name__ == "__main__":
-    asyncio.run(main())
+if __name__ == "__main__" :
+    bot = Client(
+        "StarkBot",
+        bot_token=Config.BOT_TOKEN,
+        api_id=Config.API_ID,
+        api_hash=Config.API_HASH,
+        sleep_threshold=20,
+        plugins=plugins,
+        workers = 50
+    )
+    
+    async def main():
+        await bot.start()
+        bot_info  = await bot.get_me()
+        LOGGER.info(f"<--- @{bot_info.username} Started (c) STARKBOT --->")
+        await idle()
+    
+    asyncio.get_event_loop().run_until_complete(main())
+    LOGGER.info(f"<---Bot Stopped-->")
